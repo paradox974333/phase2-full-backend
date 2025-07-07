@@ -5,6 +5,8 @@ const mongoose = require('mongoose');
 const adminAuthenticate = require('./adminAuthMiddleware');
 const User = require('./user');
 const { getWalletBalance } = require('./tronWalletUtils');
+const fs = require('fs');
+const path = require('path');
 
 // Apply the admin authentication middleware to all routes in this file
 router.use(adminAuthenticate);
@@ -14,6 +16,7 @@ router.get('/stats', async (req, res) => {
   try {
     const totalUsers = await User.countDocuments();
     const kycPending = await User.countDocuments({ kycStatus: 'pending' });
+    const withdrawalPending = await User.countDocuments({ 'withdrawals.status': 'pending' });
 
     const creditStats = await User.aggregate([
       { $group: { _id: null, totalCredits: { $sum: '$credits' } } },
@@ -30,6 +33,7 @@ router.get('/stats', async (req, res) => {
     res.json({
       totalUsers,
       kycPending,
+      withdrawalPending,
       totalCreditsInSystem: creditStats[0]?.totalCredits || 0,
       totalActivelyStaked: stakeStats[0]?.totalStaked || 0,
       adminWalletBalance,
@@ -128,5 +132,33 @@ router.post('/kyc/:userId/reject', async (req, res) => {
       res.status(500).json({ error: 'Failed to reject KYC' });
     }
   });
+
+
+// *** NEW SECURE ENDPOINT FOR VIEWING KYC DOCUMENTS ***
+// GET /api/admin/kyc/document/:filename - Securely serves a KYC document
+router.get('/kyc/document/:filename', (req, res) => {
+  try {
+    const { filename } = req.params;
+
+    // Security: Prevent path traversal attacks
+    if (filename.includes('..') || filename.includes('/')) {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
+
+    // Since this route is already protected by adminAuthenticate, we know the user is an admin.
+    const filePath = path.join(__dirname, '../uploads/kyc/', filename);
+
+    if (fs.existsSync(filePath)) {
+      // Stream the file to the client
+      res.sendFile(filePath);
+    } else {
+      res.status(404).json({ error: 'Document not found' });
+    }
+  } catch (err) {
+    console.error("Admin fetch KYC doc error:", err);
+    res.status(500).json({ error: 'Failed to fetch document' });
+  }
+});
+
 
 module.exports = router;

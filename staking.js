@@ -36,6 +36,8 @@ router.post('/staking/plan', authenticate, async (req, res) => {
     const startDate = new Date();
     const endDate = new Date(startDate.getTime() + plan.duration * 24 * 60 * 60 * 1000);
     const totalReward = amount * (plan.rewardPercent / 100);
+    
+    // CORRECTED: Calculate the daily reward amount and store it
     const dailyReward = totalReward / plan.duration;
 
     user.stakes.push({
@@ -44,7 +46,7 @@ router.post('/staking/plan', authenticate, async (req, res) => {
       amount,
       reward: totalReward,
       duration: plan.duration,
-      dailyReward,
+      dailyReward, // Store this for the daily cron job
       daysPaid: 0,
       lastRewardDate: startDate,
       startDate,

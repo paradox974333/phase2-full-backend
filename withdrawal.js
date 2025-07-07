@@ -1,9 +1,10 @@
 // withdrawal.js
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const authenticate = require('./authMiddleware');
 const User = require('./user');
-const { sendTRX, isValidTronAddress } = require('./tronWalletUtils');
+const { isValidTronAddress } = require('./tronWalletUtils');
 const { notifyAdminOfError } = require('./errorNotifier');
 
 // GET /withdrawal/balance - Get available balance for withdrawal
@@ -12,22 +13,13 @@ router.get('/withdrawal/balance', authenticate, async (req, res) => {
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const totalCredits = user.credits || 0;
-    let lockedCredits = 0;
-
-    if (user.stakes && user.stakes.length > 0) {
-      user.stakes.forEach(stake => {
-        if (stake.status === 'active') {
-          lockedCredits += stake.amount;
-        }
-      });
-    }
-
+    // With the new daily payout logic, all credits in the main `user.credits` balance
+    // are available for withdrawal. The principal of an active stake is the only
+    // amount that is locked, and it has already been deducted from this balance.
     res.json({
       message: '✅ Balance fetched successfully',
-      totalCredits: totalCredits,
-      lockedCredits,
-      availableForWithdrawal: Math.max(0, totalCredits - lockedCredits)
+      totalCredits: user.credits || 0,
+      availableForWithdrawal: user.credits || 0
     });
   } catch (err) {
     console.error('Withdrawal balance error:', err);
@@ -35,110 +27,83 @@ router.get('/withdrawal/balance', authenticate, async (req, res) => {
   }
 });
 
-// POST /withdrawal/request - Request withdrawal
+// CORRECTED: Request withdrawal (queues for manual admin processing)
 router.post('/withdrawal/request', authenticate, async (req, res) => {
   const { withdrawalAddress, amount } = req.body;
 
   try {
-    if (!withdrawalAddress || !amount) {
-      return res.status(400).json({ error: 'Withdrawal address and amount are required' });
+    const parsedAmount = parseFloat(amount);
+    if (!withdrawalAddress || !parsedAmount) {
+      return res.status(400).json({ error: 'Withdrawal address and a valid amount are required' });
     }
     if (!isValidTronAddress(withdrawalAddress)) {
       return res.status(400).json({ error: 'Invalid TRON address format' });
     }
-    if (amount <= 0) {
+    if (parsedAmount <= 0) {
       return res.status(400).json({ error: 'Amount must be greater than 0' });
     }
 
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const totalCredits = user.credits || 0;
-    let lockedCredits = 0;
-    if (user.stakes && user.stakes.length > 0) {
-      user.stakes.forEach(stake => {
-        if (stake.status === 'active') {
-          lockedCredits += stake.amount;
-        }
-      });
-    }
+    const availableForWithdrawal = user.credits || 0;
 
-    const availableForWithdrawal = Math.max(0, totalCredits - lockedCredits);
-
-    if (amount > availableForWithdrawal) {
+    if (parsedAmount > availableForWithdrawal) {
       return res.status(400).json({ 
         error: `Insufficient balance. Available for withdrawal: ${availableForWithdrawal} credits`,
         availableBalance: availableForWithdrawal
       });
     }
 
+    // --- SECURE QUEUING LOGIC ---
+
+    // 1. Debit the user's credits immediately to prevent double-spending
+    user.credits -= parsedAmount;
+
+    // 2. Create the withdrawal record with a 'pending' status
     if (!user.withdrawals) user.withdrawals = [];
-    
     const withdrawal = {
-      id: Date.now().toString(),
-      amount,
+      id: crypto.randomBytes(16).toString('hex'), // More robust unique ID
+      amount: parsedAmount,
       withdrawalAddress,
-      status: 'pending',
+      status: 'pending', // IMPORTANT: Marked as pending for admin processing
       requestDate: new Date(),
     };
     user.withdrawals.push(withdrawal);
+
+    // 3. Add to credits history
+    user.creditsHistory.push({
+      type: 'withdrawal',
+      amount: -parsedAmount,
+      reason: `Withdrawal request to ${withdrawalAddress}`,
+      date: new Date()
+    });
+
     await user.save();
 
-    try {
-      const result = await sendTRX(
-        process.env.ADMIN_WALLET_ADDRESS,
-        process.env.ADMIN_ENCRYPTED_PRIVATE_KEY,
-        withdrawalAddress,
-        amount
-      );
+    // 4. Notify the admin about the new withdrawal request
+    await notifyAdminOfError(
+      'New Withdrawal Request',
+      new Error(`A new withdrawal has been requested and is awaiting approval.`),
+      `User: ${user.username} (${user._id})\nAmount: ${parsedAmount} TRX\nTo Address: ${withdrawalAddress}`
+    );
 
-      if (result.success) {
-        const wIndex = user.withdrawals.findIndex(w => w.id === withdrawal.id);
-        if (wIndex > -1) {
-            user.withdrawals[wIndex].status = 'completed';
-            user.withdrawals[wIndex].processedDate = new Date();
-            user.withdrawals[wIndex].txHash = result.txHash;
-        }
+    // 5. Respond to the user
+    res.status(202).json({
+      message: '✅ Withdrawal request received and is being processed. This may take up to 24 hours.',
+      withdrawal,
+      newCreditBalance: user.credits,
+    });
 
-        user.credits -= amount;
-        user.creditsHistory.push({
-            type: 'withdrawal',
-            amount: -amount,
-            reason: `Withdrawal to address ${withdrawalAddress}`,
-            date: new Date()
-        });
-        await user.save();
-
-        res.json({
-          message: '✅ Withdrawal completed successfully',
-          withdrawal: user.withdrawals[wIndex],
-        });
-      } else {
-        throw new Error('sendTRX returned success:false without throwing an error.');
-      }
-    } catch (txError) {
-      await notifyAdminOfError(
-        'Withdrawal Transaction Failed',
-        txError,
-        `User: ${user.username} (${user._id}), Amount: ${amount} TRX, To: ${withdrawalAddress}`
-      );
-
-      const wIndex = user.withdrawals.findIndex(w => w.id === withdrawal.id);
-      if (wIndex > -1) {
-          user.withdrawals[wIndex].status = 'failed';
-      }
-      await user.save();
-
-      res.status(500).json({ 
-        error: 'Withdrawal processing failed. Please contact support.',
-        withdrawal: user.withdrawals[wIndex]
-      });
-    }
   } catch (err) {
     console.error('Withdrawal request error:', err);
-    res.status(500).json({ error: 'Internal server error processing withdrawal' });
+    // Note: We don't automatically fail the withdrawal in the DB here.
+    // An error here is likely a server issue, and we should not lose the user's request.
+    // The admin will see the notification and can verify against the user's history.
+    res.status(500).json({ error: 'Internal server error processing withdrawal. Please contact support.' });
   }
 });
+
 
 // GET /withdrawal/history - Get withdrawal history
 router.get('/withdrawal/history', authenticate, async (req, res) => {

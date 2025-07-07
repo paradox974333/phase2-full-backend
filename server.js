@@ -190,9 +190,8 @@ app.use('/api', kycRoutes);
 // Admin-specific routes
 app.use('/api/admin', adminRoutes);
 
-// Make uploaded KYC documents accessible via a URL
-// e.g., http://localhost:5000/uploads/kyc/filename.jpg
-app.use('/uploads/kyc', express.static('uploads/kyc'));
+// REMOVED: Insecure static serving of KYC documents.
+// app.use('/uploads/kyc', express.static('uploads/kyc'));
 
 
 // Define the port the server will listen on

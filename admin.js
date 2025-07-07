@@ -146,7 +146,9 @@ router.get('/kyc/document/:filename', (req, res) => {
     }
 
     // Since this route is already protected by adminAuthenticate, we know the user is an admin.
-    const filePath = path.join(__dirname, '../uploads/kyc/', filename);
+    // NOTE: This path assumes your `uploads` directory is at the root of your project.
+    // Adjust '../' if your file structure is different.
+    const filePath = path.join(process.cwd(), 'uploads/kyc', filename);
 
     if (fs.existsSync(filePath)) {
       // Stream the file to the client

@@ -88,11 +88,11 @@ const userSchema = new mongoose.Schema({
     planId: String,
     planName: String,
     amount: Number,
-    reward: Number,
+    reward: Number, // Total potential reward
     duration: Number,
-    dailyReward: Number,
-    daysPaid: Number,
-    lastRewardDate: Date,
+    dailyReward: Number, // The amount of credit paid out daily
+    daysPaid: Number, // Counter for how many days of rewards have been paid
+    lastRewardDate: Date, // The date of the last reward payout
     startDate: Date,
     endDate: Date,
     status: {

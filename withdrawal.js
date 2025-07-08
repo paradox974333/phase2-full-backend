@@ -46,6 +46,11 @@ router.post('/withdrawal/request', authenticate, async (req, res) => {
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    // Ensure user has passed KYC if it's required for withdrawals
+    if (!user.kycApproved) {
+        return res.status(403).json({ error: 'KYC approval is required before making a withdrawal.' });
+    }
+
     const availableForWithdrawal = user.credits || 0;
 
     if (parsedAmount > availableForWithdrawal) {
@@ -97,9 +102,6 @@ router.post('/withdrawal/request', authenticate, async (req, res) => {
 
   } catch (err) {
     console.error('Withdrawal request error:', err);
-    // Note: We don't automatically fail the withdrawal in the DB here.
-    // An error here is likely a server issue, and we should not lose the user's request.
-    // The admin will see the notification and can verify against the user's history.
     res.status(500).json({ error: 'Internal server error processing withdrawal. Please contact support.' });
   }
 });

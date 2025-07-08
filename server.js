@@ -190,7 +190,7 @@ app.use('/api', kycRoutes);
 // Admin-specific routes
 app.use('/api/admin', adminRoutes);
 
-// REMOVED: Insecure static serving of KYC documents.
+// REMOVED: Insecure static serving of KYC documents. This is the critical security fix.
 // app.use('/uploads/kyc', express.static('uploads/kyc'));
 
 

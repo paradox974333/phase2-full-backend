@@ -1,7 +1,7 @@
 // admin.js
 const express = require('express');
 const router = express.Router();
-const mongoose = require('mongoose');
+const mongoose = require('mongoose'); // <<<--- IMPORT MONGOOSE
 const adminAuthenticate = require('./adminAuthMiddleware');
 const User = require('./user');
 const { getWalletBalance } = require('./tronWalletUtils');
@@ -72,7 +72,13 @@ router.post('/users/:userId/credits', async (req, res) => {
   }
 
   try {
-    const user = await User.findById(req.params.userId);
+    const { userId } = req.params;
+    // *** FIX: Add validation for the userId ***
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID format.' });
+    }
+
+    const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     user.credits += amount;
@@ -104,8 +110,14 @@ router.get('/kyc/pending', async (req, res) => {
 // POST /api/admin/kyc/:userId/approve - Approve a user's KYC
 router.post('/kyc/:userId/approve', async (req, res) => {
   try {
+    const { userId } = req.params;
+    // *** FIX: Add validation for the userId ***
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID format.' });
+    }
+
     const user = await User.findByIdAndUpdate(
-      req.params.userId,
+      userId,
       { kycStatus: 'approved', kycApproved: true },
       { new: true }
     );
@@ -120,8 +132,14 @@ router.post('/kyc/:userId/approve', async (req, res) => {
 // POST /api/admin/kyc/:userId/reject - Reject a user's KYC
 router.post('/kyc/:userId/reject', async (req, res) => {
     try {
+      const { userId } = req.params;
+      // *** FIX: Add validation for the userId ***
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return res.status(400).json({ error: 'Invalid user ID format.' });
+      }
+
       const user = await User.findByIdAndUpdate(
-        req.params.userId,
+        userId,
         { kycStatus: 'rejected', kycApproved: false },
         { new: true }
       );
@@ -131,10 +149,9 @@ router.post('/kyc/:userId/reject', async (req, res) => {
       console.error("Admin reject KYC error:", err);
       res.status(500).json({ error: 'Failed to reject KYC' });
     }
-  });
+});
 
 
-// *** NEW SECURE ENDPOINT FOR VIEWING KYC DOCUMENTS ***
 // GET /api/admin/kyc/document/:filename - Securely serves a KYC document
 router.get('/kyc/document/:filename', (req, res) => {
   try {
@@ -146,9 +163,7 @@ router.get('/kyc/document/:filename', (req, res) => {
     }
 
     // Since this route is already protected by adminAuthenticate, we know the user is an admin.
-    // NOTE: This path assumes your `uploads` directory is at the root of your project.
-    // Adjust '../' if your file structure is different.
-    const filePath = path.join(process.cwd(), 'uploads/kyc', filename);
+    const filePath = path.join(__dirname, '../uploads/kyc/', filename);
 
     if (fs.existsSync(filePath)) {
       // Stream the file to the client

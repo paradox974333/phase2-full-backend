@@ -4,13 +4,16 @@ const router = express.Router();
 const authenticate = require('./authMiddleware');
 const User = require('./user');
 
-// Define fixed staking plans
+// Define fixed staking plans (Reward is total return including principal)
+// The prompt "Reward: 100% (100 credits return)" for a 50 credit stake implies the total return is 100 credits (50 principal + 50 reward).
+// We will calculate reward as (Total Return - Principal)
 const STAKING_PLANS = [
-  { id: 'quick', name: 'Quick Stake', duration: 7, minCredits: 50, rewardPercent: 100 },
-  { id: 'standard', name: 'Standard Stake', duration: 30, minCredits: 100, rewardPercent: 250 },
-  { id: 'premium', name: 'Premium Stake', duration: 90, minCredits: 500, rewardPercent: 500 },
-  { id: 'elite', name: 'Elite Stake', duration: 180, minCredits: 1000, rewardPercent: 1000 }
+    { id: 'quick', name: 'Quick Stake', duration: 7, minCredits: 50, totalReturnPercent: 200 }, // 50 stake -> 100 total return
+    { id: 'standard', name: 'Standard Stake', duration: 30, minCredits: 100, totalReturnPercent: 350 }, // 100 stake -> 350 total return
+    { id: 'premium', name: 'Premium Stake', duration: 90, minCredits: 500, totalReturnPercent: 600 }, // 500 stake -> 3000 total return
+    { id: 'elite', name: 'Elite Stake', duration: 180, minCredits: 1000, totalReturnPercent: 1100 } // 1000 stake -> 11000 total return
 ];
+
 
 // POST /staking/plan
 router.post('/staking/plan', authenticate, async (req, res) => {
@@ -35,7 +38,10 @@ router.post('/staking/plan', authenticate, async (req, res) => {
 
     const startDate = new Date();
     const endDate = new Date(startDate.getTime() + plan.duration * 24 * 60 * 60 * 1000);
-    const totalReward = amount * (plan.rewardPercent / 100);
+    
+    // Calculate total return and the actual reward (profit)
+    const totalReturn = amount * (plan.totalReturnPercent / 100);
+    const totalReward = totalReturn - amount;
     
     // CORRECTED: Calculate the daily reward amount and store it
     const dailyReward = totalReward / plan.duration;

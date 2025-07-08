@@ -71,7 +71,7 @@ cron.schedule('0 0 * * *', async () => {
   }
 });
 
-// Run every minute to check for user deposits and sweep funds (No changes needed here)
+// Run every minute to check for user deposits and sweep funds
 let isDepositJobRunning = false;
 cron.schedule('* * * * *', async () => {
   if (isDepositJobRunning) return;
@@ -112,6 +112,7 @@ cron.schedule('* * * * *', async () => {
               if (result.success) {
                 console.log(`🧹 Swept ${amountToSweep} TRX from ${user.username} to admin. Tx: ${result.txHash}`);
                 
+                // Credit user with the full balance detected before the sweep
                 user.credits = (user.credits || 0) + balance;
                 user.creditsHistory.push({ type: 'deposit', amount: balance, reason: `TRX deposit detected and secured` });
                 await user.save();
